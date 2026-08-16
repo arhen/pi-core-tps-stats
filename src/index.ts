@@ -22,6 +22,7 @@ export default function (pi: ExtensionAPI) {
 	// ── current-turn tracking ──
 	let turnStart = 0;
 	let textStart = 0;
+	let pushedEff = false;
 
 	function median(sorted: number[]): number {
 		if (sorted.length === 0) return 0;
@@ -95,6 +96,7 @@ export default function (pi: ExtensionAPI) {
 		ttftValues = [];
 		turnStart = 0;
 		textStart = 0;
+		pushedEff = false;
 		if (!hadSamples) {
 			ctx.ui.setStatus("tps", undefined);
 			return;
@@ -112,6 +114,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("turn_start", (_event: TurnStartEvent, ctx: ExtensionContext) => {
 		turnStart = Date.now();
 		textStart = 0;
+		pushedEff = false;
 	});
 
 	pi.on(
@@ -127,26 +130,32 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("message_end", (event: MessageEndEvent, ctx: ExtensionContext) => {
 		if (event.message.role !== "assistant") return;
-		if (!turnStart || textStart === 0) return;
+		if (!turnStart) return;
 
 		const now = Date.now();
 		const usage = event.message.usage;
 		if (!usage || typeof usage.output !== "number" || usage.output <= 0) return;
 
-		const ttft = textStart - turnStart;
-		if (ttft > 0) push(ttftValues, ttft);
+		// text-window math is only valid for segments that streamed text
+		// (thinking-only / tool-call-only segments never fire text_start)
+		if (textStart !== 0) {
+			const ttft = textStart - turnStart;
+			if (ttft >= 0) push(ttftValues, ttft);
 
-		// streaming t/s: text tokens streamed inside [text_start, message_end]
-		const textTokens = textTokensOf(event.message);
-		const durationMs = now - textStart;
-		if (durationMs > 0 && textTokens > 0) {
-			push(tpsValues, textTokens / (durationMs / 1000));
+			// streaming t/s: text tokens streamed inside [text_start, message_end]
+			const textTokens = textTokensOf(event.message);
+			const durationMs = now - textStart;
+			if (durationMs > 0 && textTokens > 0) {
+				push(tpsValues, textTokens / (durationMs / 1000));
+			}
 		}
 
-		// effective t/s: all output tokens over the full turn (incl. thinking time)
+		// effective t/s: all output tokens over the full turn (incl. thinking time);
+		// recorded for every segment so tool-only segments aren't dropped from the set
 		const effDurationMs = now - turnStart;
 		if (effDurationMs > 0) {
 			push(effTpsValues, usage.output / (effDurationMs / 1000));
+			pushedEff = true;
 		}
 
 		// pi fires turn_start/turn_end per assistant message: keep turnStart across
@@ -162,19 +171,25 @@ export default function (pi: ExtensionAPI) {
 		if (usage && typeof usage.output === "number" && usage.output > 0) {
 			const effDurationMs = Date.now() - turnStart;
 			if (effDurationMs > 0) {
-				// F2: message_end already pushed this segment — replace, not append.
-				effTpsValues[effTpsValues.length - 1] = usage.output / (effDurationMs / 1000);
+				const effTps = usage.output / (effDurationMs / 1000);
+				if (pushedEff) {
+					// F2: message_end already pushed this segment — replace, not append.
+					effTpsValues[effTpsValues.length - 1] = effTps;
+				} else {
+					// this segment recorded no effTps — append fresh instead of
+					// clobbering the previous segment's sample (or writing arr[-1])
+					push(effTpsValues, effTps);
+				}
 			}
 		}
+		pushedEff = false;
 		turnStart = 0;
 		textStart = 0;
 		updateStatus(ctx);
 	});
 
-	pi.on("model_select", (event: { model?: { provider?: string; id?: string } }, ctx: ExtensionContext) => {
-		const modelLabel = event.model
-			? `${event.model.provider}/${event.model.id}`
-			: "?";
+	pi.on("model_select", (event: { model: { provider: string; id: string } }, ctx: ExtensionContext) => {
+		const modelLabel = `${event.model.provider}/${event.model.id}`;
 		// ponytail: reset stats on model change — different models have different speeds
 		resetStats(ctx, modelLabel);
 	});
