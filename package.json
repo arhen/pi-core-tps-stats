@@ -1,5 +1,5 @@
 {
-  "name": "@arhen/pi-tps-stats",
+  "name": "@arhen/pi-core-tps-stats",
   "version": "1.0.0",
   "type": "module",
   "description": "Pi extension: tps-stats.",
