@@ -1,6 +1,6 @@
 {
   "name": "@arhen/pi-core-tps-stats",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "type": "module",
   "description": "Minimalist pi extension: live tokens-per-second stats for the active model",
   "license": "MIT",
