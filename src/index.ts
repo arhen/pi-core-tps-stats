@@ -2,10 +2,11 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 	TurnStartEvent,
+	TurnEndEvent,
 	MessageUpdateEvent,
 	MessageEndEvent,
-	ModelSelectEvent,
 } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 
 export default function (pi: ExtensionAPI) {
 	// ── per-model segment ── (bounded: 200 samples keep memory + median responsive)
@@ -155,9 +156,9 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// M1: finalize effective t/s once per full turn (final answer included).
-	pi.on("turn_end", (event: { message: { usage?: { output?: number } } }, ctx: ExtensionContext) => {
+	pi.on("turn_end", (event: TurnEndEvent, ctx: ExtensionContext) => {
 		if (!turnStart) return;
-		const usage = event.message?.usage;
+		const usage = (event.message as AssistantMessage)?.usage;
 		if (usage && typeof usage.output === "number" && usage.output > 0) {
 			const effDurationMs = Date.now() - turnStart;
 			if (effDurationMs > 0) push(effTpsValues, usage.output / (effDurationMs / 1000));
@@ -167,7 +168,7 @@ export default function (pi: ExtensionAPI) {
 		updateStatus(ctx);
 	});
 
-	pi.on("model_select", (event: ModelSelectEvent, ctx: ExtensionContext) => {
+	pi.on("model_select", (event: { model?: { provider?: string; id?: string } }, ctx: ExtensionContext) => {
 		const modelLabel = event.model
 			? `${event.model.provider}/${event.model.id}`
 			: "?";
