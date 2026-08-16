@@ -6,7 +6,6 @@ import type {
 	MessageUpdateEvent,
 	MessageEndEvent,
 } from "@earendil-works/pi-coding-agent";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
 
 export default function (pi: ExtensionAPI) {
 	// ── per-model segment ── (bounded: 200 samples keep memory + median responsive)
@@ -149,8 +148,8 @@ export default function (pi: ExtensionAPI) {
 			push(effTpsValues, usage.output / (effDurationMs / 1000));
 		}
 
-		// M1: keep turnStart across tool segments; the final answer's message_end
-		// still streams, and effTps is finalized at turn_end.
+		// pi fires turn_start/turn_end per assistant message: keep turnStart across
+		// a segment's streaming; effTps is recorded per segment at message_end.
 		textStart = 0;
 		updateStatus(ctx);
 	});
