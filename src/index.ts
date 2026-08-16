@@ -88,13 +88,13 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function resetStats(ctx: ExtensionContext, modelLabel: string) {
+		// F1: measure BEFORE clearing — otherwise the flash branch is dead code.
+		const hadSamples = tpsValues.length > 0 || effTpsValues.length > 0 || ttftValues.length > 0;
 		tpsValues = [];
 		effTpsValues = [];
 		ttftValues = [];
 		turnStart = 0;
 		textStart = 0;
-		// L4: no flash when nothing had been measured for the old model.
-		const hadSamples = tpsValues.length > 0 || effTpsValues.length > 0 || ttftValues.length > 0;
 		if (!hadSamples) {
 			ctx.ui.setStatus("tps", undefined);
 			return;
@@ -105,7 +105,7 @@ export default function (pi: ExtensionAPI) {
 			`${t.fg("dim", "t/s reset")} ${t.fg("accent", modelLabel)}`,
 		);
 		setTimeout(() => {
-			if (tpsValues.length === 0) ctx.ui.setStatus("tps", undefined);
+			if (tpsValues.length === 0 && effTpsValues.length === 0 && ttftValues.length === 0) ctx.ui.setStatus("tps", undefined);
 		}, 2000);
 	}
 
@@ -161,7 +161,10 @@ export default function (pi: ExtensionAPI) {
 		const usage = (event.message as AssistantMessage)?.usage;
 		if (usage && typeof usage.output === "number" && usage.output > 0) {
 			const effDurationMs = Date.now() - turnStart;
-			if (effDurationMs > 0) push(effTpsValues, usage.output / (effDurationMs / 1000));
+			if (effDurationMs > 0) {
+				// F2: message_end already pushed this segment — replace, not append.
+				effTpsValues[effTpsValues.length - 1] = usage.output / (effDurationMs / 1000);
+			}
 		}
 		turnStart = 0;
 		textStart = 0;
