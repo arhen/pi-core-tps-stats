@@ -8,10 +8,15 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-	// ── per-model segment ──
+	// ── per-model segment ── (bounded: 200 samples keep memory + median responsive)
+	const MAX_SAMPLES = 200;
 	let tpsValues: number[] = [];
 	let effTpsValues: number[] = [];
 	let ttftValues: number[] = [];
+	const push = (arr: number[], v: number): void => {
+		arr.push(v);
+		if (arr.length > MAX_SAMPLES) arr.shift();
+	};
 
 	// ── current-turn tracking ──
 	let turnStart = 0;
@@ -85,6 +90,14 @@ export default function (pi: ExtensionAPI) {
 		tpsValues = [];
 		effTpsValues = [];
 		ttftValues = [];
+		turnStart = 0;
+		textStart = 0;
+		// L4: no flash when nothing had been measured for the old model.
+		const hadSamples = tpsValues.length > 0 || effTpsValues.length > 0 || ttftValues.length > 0;
+		if (!hadSamples) {
+			ctx.ui.setStatus("tps", undefined);
+			return;
+		}
 		const t = ctx.ui.theme;
 		ctx.ui.setStatus(
 			"tps",
@@ -120,24 +133,38 @@ export default function (pi: ExtensionAPI) {
 		if (!usage || typeof usage.output !== "number" || usage.output <= 0) return;
 
 		const ttft = textStart - turnStart;
-		if (ttft > 0) ttftValues.push(ttft);
+		if (ttft > 0) push(ttftValues, ttft);
 
 		// streaming t/s: text tokens streamed inside [text_start, message_end]
 		const textTokens = textTokensOf(event.message);
 		const durationMs = now - textStart;
 		if (durationMs > 0 && textTokens > 0) {
-			tpsValues.push(textTokens / (durationMs / 1000));
+			push(tpsValues, textTokens / (durationMs / 1000));
 		}
 
 		// effective t/s: all output tokens over the full turn (incl. thinking time)
 		const effDurationMs = now - turnStart;
 		if (effDurationMs > 0) {
-			effTpsValues.push(usage.output / (effDurationMs / 1000));
+			push(effTpsValues, usage.output / (effDurationMs / 1000));
 		}
 
+		// M1: keep turnStart across tool segments; the final answer's message_end
+		// still streams, and effTps is finalized at turn_end.
+		textStart = 0;
 		updateStatus(ctx);
+	});
+
+	// M1: finalize effective t/s once per full turn (final answer included).
+	pi.on("turn_end", (event: { message: { usage?: { output?: number } } }, ctx: ExtensionContext) => {
+		if (!turnStart) return;
+		const usage = event.message?.usage;
+		if (usage && typeof usage.output === "number" && usage.output > 0) {
+			const effDurationMs = Date.now() - turnStart;
+			if (effDurationMs > 0) push(effTpsValues, usage.output / (effDurationMs / 1000));
+		}
 		turnStart = 0;
 		textStart = 0;
+		updateStatus(ctx);
 	});
 
 	pi.on("model_select", (event: ModelSelectEvent, ctx: ExtensionContext) => {
@@ -154,7 +181,7 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			const n = tpsValues.length;
 			if (n === 0) {
-				await ctx.ui.confirm("t/s Stats", "No data yet. Send a prompt first.");
+				ctx.ui.notify("t/s Stats: no data yet. Send a prompt first.", "info");
 				return;
 			}
 			const avg = tpsValues.reduce((a, b) => a + b, 0) / n;
