@@ -2,7 +2,7 @@
   "name": "@arhen/pi-core-tps-stats",
   "version": "1.0.2",
   "type": "module",
-  "description": "Pi extension: tps-stats.",
+  "description": "Minimalist pi extension: live tokens-per-second stats for the active model",
   "license": "MIT",
   "main": "./src/index.ts",
   "files": [
@@ -34,5 +34,10 @@
   "devDependencies": {
     "@types/bun": "^1.3.14",
     "typescript": "^7.0.2"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arhen/pi-core-tps-stats.git"
+  },
+  "author": "arhen"
 }
